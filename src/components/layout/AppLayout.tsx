@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { AppSidebar } from './AppSidebar';
 import { useShoppingReminder } from '@/hooks/useShoppingReminder';
 import { resetIfFirstLogin } from '@/lib/firstLoginReset';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 function ShoppingReminderToast() {
   const [reminder, setReminder] = useState<{ count: number } | null>(null);
@@ -61,6 +62,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
+      <div className="fixed right-4 top-4 z-50 hidden md:block">
+        <ThemeToggle compact />
+      </div>
       <AppSidebar />
       <main className="flex-1 min-w-0 pt-14 md:pt-0 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-4 md:p-8 pb-24">

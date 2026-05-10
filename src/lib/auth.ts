@@ -3,6 +3,7 @@ import Google from 'next-auth/providers/google';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { createServerSupabaseClient } from './supabase';
+import { isAdminEmail } from './admin';
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -101,12 +102,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.isAdmin = isAdminEmail(user.email);
+      }
+      if (token.email) {
+        token.isAdmin = isAdminEmail(token.email);
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string;
+        session.user.isAdmin = Boolean(token.isAdmin);
       }
       return session;
     },

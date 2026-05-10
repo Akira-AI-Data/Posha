@@ -46,39 +46,29 @@ export function FooterSection() {
             <div>
               <h4 className="font-heading font-medium text-sm uppercase tracking-wider text-white/40 mb-4">Product</h4>
               <ul className="space-y-3">
-                {['Features', 'Pricing', 'Recipes', 'Meal Planner'].map((link) => (
-                  <li key={link}>
-                    <a href="#" className="text-sm text-white/70 hover:text-white transition-colors">
-                      {link}
-                    </a>
-                  </li>
-                ))}
+                <li><a href="#pricing" className="text-sm text-white/70 hover:text-white transition-colors">Pricing</a></li>
+                <li><a href="#how-it-works" className="text-sm text-white/70 hover:text-white transition-colors">How it works</a></li>
+                <li><Link href="/cookbook" className="text-sm text-white/70 hover:text-white transition-colors">Cookbook</Link></li>
+                <li><Link href="/meal-plan" className="text-sm text-white/70 hover:text-white transition-colors">Meal Planner</Link></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-heading font-medium text-sm uppercase tracking-wider text-white/40 mb-4">Company</h4>
               <ul className="space-y-3">
-                {['About', 'Blog', 'Careers', 'Press'].map((link) => (
-                  <li key={link}>
-                    <a href="#" className="text-sm text-white/70 hover:text-white transition-colors">
-                      {link}
-                    </a>
-                  </li>
-                ))}
+                <li><span className="text-sm text-white/70">Built for practical, everyday nutrition</span></li>
+                <li><span className="text-sm text-white/70">Weekly product improvements</span></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-heading font-medium text-sm uppercase tracking-wider text-white/40 mb-4">Support</h4>
               <ul className="space-y-3">
-                {['Help Center', 'Contact', 'Privacy', 'Terms'].map((link) => (
-                  <li key={link}>
-                    <a href="#" className="text-sm text-white/70 hover:text-white transition-colors">
-                      {link}
-                    </a>
-                  </li>
-                ))}
+                <li><a href="mailto:rahulpagidi025@gmail.com" className="text-sm text-white/70 hover:text-white transition-colors">rahulpagidi025@gmail.com</a></li>
+                <li><span className="text-sm text-white/70">Fast bug acknowledgement in-app and by email</span></li>
+                <li><Link href="/settings" className="text-sm text-white/70 hover:text-white transition-colors">Profile & settings</Link></li>
+                <li><Link href="/privacy" className="text-sm text-white/70 hover:text-white transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/delete-account" className="text-sm text-white/70 hover:text-white transition-colors">Delete Account</Link></li>
               </ul>
             </div>
           </div>
@@ -88,6 +78,12 @@ export function FooterSection() {
               &copy; 2026 Posha. All rights reserved.
             </p>
             <div className="flex items-center gap-6">
+              <Link href="/privacy" className="text-xs text-white/40 hover:text-white transition-colors">
+                Privacy Policy
+              </Link>
+              <Link href="/delete-account" className="text-xs text-white/40 hover:text-white transition-colors">
+                Delete Account
+              </Link>
               {['Twitter', 'Instagram', 'LinkedIn'].map((social) => (
                 <a key={social} href="#" className="text-xs text-white/40 hover:text-white transition-colors">
                   {social}

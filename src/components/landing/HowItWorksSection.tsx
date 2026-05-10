@@ -50,6 +50,52 @@ export function HowItWorksSection() {
           </div>
         </ScrollReveal>
 
+        <ScrollReveal>
+          <div className="mb-20 grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+            <div className="text-center lg:text-left">
+              <p className="text-sm uppercase tracking-[0.2em] font-bold text-[#8A9A86] mb-4">See Posha In Action</p>
+              <h3 className="font-heading text-3xl md:text-4xl tracking-tight leading-[1.15] font-medium text-[#1A241C]">
+                Snap once. Get the nutrition breakdown instantly.
+              </h3>
+
+              <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: 'Photo capture', value: '1 tap' },
+                  { label: 'Nutrition view', value: 'Calories + macros' },
+                  { label: 'Finish feeling', value: 'Track and eat' },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-[8px] border border-[#E5E0D8] bg-[#F8F6F1] px-4 py-4 text-left">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8A9A86]">{item.label}</p>
+                    <p className="mt-2 text-sm font-semibold text-[#1A241C]">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-center lg:justify-end">
+              <div className="w-full max-w-[720px] rounded-[8px] border border-[#E5E0D8] bg-[#102416] p-3 shadow-[0_24px_80px_rgba(18,36,22,0.16)]">
+                <div className="overflow-hidden rounded-[8px] bg-black">
+                  <video
+                    className="block aspect-video w-full bg-black object-contain"
+                    poster="/videos/posha-promo-poster-landscape.png"
+                    controls
+                    playsInline
+                    preload="metadata"
+                  >
+                    <source src="/videos/posha-promo-mobile.mp4" type="video/mp4" />
+                  </video>
+                </div>
+                <a
+                  href="/videos/posha-promo-mobile.mp4"
+                  className="mt-3 block rounded-[8px] bg-white px-4 py-3 text-center text-sm font-semibold text-[#102416]"
+                >
+                  Open video
+                </a>
+              </div>
+            </div>
+          </div>
+        </ScrollReveal>
+
         <div className="relative">
           <div className="hidden md:block absolute left-1/2 top-0 bottom-0 w-px bg-[#E5E0D8] -translate-x-1/2" />
 

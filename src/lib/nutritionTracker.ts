@@ -1,6 +1,14 @@
 import { RECIPES, type Recipe } from '@/data/recipes';
+import { estimateRecipeCalories, getMealCalorieTarget, type PlannerSettings } from '@/lib/mealPlanner';
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export interface GoalSettings {
+  weightGoal?: 'lose' | 'maintain' | 'gain';
+  targetWeight?: string;
+  caloriePlanningMode?: 'daily' | 'per-meal';
+  mealCalories?: Partial<Record<MealType, string>>;
+}
 
 export interface LoggedMeal {
   id: string;
@@ -36,6 +44,7 @@ interface SettingsData {
     fat?: string;
     water?: string;
   };
+  goals?: GoalSettings;
 }
 
 export interface MacroCard {
@@ -95,6 +104,22 @@ export interface NutritionInsights {
   foodGroups: FoodGroupSummary[];
   nutrients: NutrientCoverageItem[];
   recommendations: RecommendationItem[];
+}
+
+export interface MealSuggestion {
+  mealType: MealType;
+  targetCalories: number | null;
+  recipeName: string;
+  cuisine?: string;
+  calories: number;
+  why: string;
+}
+
+export interface DecisionSupportSummary {
+  nextMealType: MealType;
+  headline: string;
+  summary: string;
+  suggestions: MealSuggestion[];
 }
 
 export const LOG_KEY = 'posha_logged_meals';
@@ -315,6 +340,88 @@ function inferNutrients(meal: LoggedMeal): Set<string> {
   }
 
   return derived;
+}
+
+function getTodayMeals(dateKey = getLocalDateKey()) {
+  return loadLoggedMeals().filter((meal) => getLocalDateKey(new Date(meal.createdAt)) === dateKey);
+}
+
+function getNextMealTypeFromMeals(meals: LoggedMeal[]): MealType {
+  const order: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+  const seen = new Set(meals.map((meal) => meal.mealType));
+  return order.find((mealType) => !seen.has(mealType)) ?? 'snack';
+}
+
+function buildPlannerSettings(): PlannerSettings {
+  return loadTrackerSettings();
+}
+
+function getMissingMacroSignals(meals: LoggedMeal[], settings: SettingsData) {
+  const protein = meals.reduce((sum, meal) => sum + meal.protein, 0);
+  const carbs = meals.reduce((sum, meal) => sum + meal.carbs, 0);
+  const fat = meals.reduce((sum, meal) => sum + meal.fat, 0);
+
+  return {
+    proteinLow: protein < Number(settings.dailyGoals?.protein || 150) * 0.55,
+    carbsLow: carbs < Number(settings.dailyGoals?.carbs || 250) * 0.55,
+    fatLow: fat < Number(settings.dailyGoals?.fat || 65) * 0.55,
+  };
+}
+
+export function buildDecisionSupportSummary(dateKey = getLocalDateKey()): DecisionSupportSummary {
+  const settings = loadTrackerSettings();
+  const meals = getTodayMeals(dateKey);
+  const nextMealType = getNextMealTypeFromMeals(meals);
+  const targetCalories = getMealCalorieTarget(nextMealType, buildPlannerSettings());
+  const macros = getMissingMacroSignals(meals, settings);
+
+  const suggestions = RECIPES
+    .filter((recipe) => recipe.category === nextMealType)
+    .map((recipe) => {
+      const calories = estimateRecipeCalories(recipe);
+      const calorieDelta = targetCalories ? Math.abs(calories - targetCalories) : 0;
+      let score = recipe.nutrients.length * 2 - calorieDelta / 80;
+
+      if (macros.proteinLow && recipe.nutrients.includes('Protein')) score += 5;
+      if (macros.carbsLow && recipe.nutrients.includes('Fiber')) score += 2;
+      if (macros.fatLow && recipe.nutrients.includes('Healthy Fats')) score += 2;
+      if (settings.goals?.weightGoal === 'lose' && targetCalories && calories <= targetCalories + 60) score += 2;
+      if (settings.goals?.weightGoal === 'gain' && targetCalories && calories >= targetCalories - 60) score += 2;
+
+      const whyParts = [];
+      if (targetCalories) whyParts.push(`${calories} kcal vs target ${targetCalories}`);
+      if (macros.proteinLow && recipe.nutrients.includes('Protein')) whyParts.push('supports protein goal');
+      if (recipe.nutrients.includes('Fiber')) whyParts.push('adds fiber');
+
+      return {
+        mealType: nextMealType,
+        targetCalories,
+        recipeName: recipe.name,
+        cuisine: recipe.cuisine,
+        calories,
+        why: whyParts.join(' · ') || 'balanced fit for your day',
+        score,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.recipeName.localeCompare(b.recipeName))
+    .slice(0, 3)
+    .map(({ score: _score, ...item }) => item);
+
+  const weightGoalLabel =
+    settings.goals?.weightGoal === 'lose'
+      ? 'keep calories tighter'
+      : settings.goals?.weightGoal === 'gain'
+        ? 'push calories a little higher'
+        : 'stay balanced';
+
+  return {
+    nextMealType,
+    headline: `Next up: ${nextMealType.charAt(0).toUpperCase() + nextMealType.slice(1)}`,
+    summary: targetCalories
+      ? `Aim for about ${targetCalories} kcal and ${weightGoalLabel}.`
+      : `Keep ${nextMealType} balanced around your nutrition goals.`,
+    suggestions,
+  };
 }
 
 function countFoodGroupHits(meals: LoggedMeal[]) {

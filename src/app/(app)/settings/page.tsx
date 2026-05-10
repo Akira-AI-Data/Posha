@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { Settings, User, Target, Users, Plus, Trash2, Save, Check, ChevronDown, ChevronUp, UserCircle, MapPin, Loader2 } from 'lucide-react'
+import { UpgradeNotice } from '@/components/billing/UpgradeNotice'
+import { useBillingAccess } from '@/hooks/useBillingAccess'
 
 interface PersonalInfo {
   fullName: string
@@ -28,6 +30,18 @@ interface DailyGoals {
   water: string
 }
 
+interface GoalSettings {
+  weightGoal: 'lose' | 'maintain' | 'gain'
+  targetWeight: string
+  caloriePlanningMode: 'daily' | 'per-meal'
+  mealCalories: {
+    breakfast: string
+    lunch: string
+    dinner: string
+    snack: string
+  }
+}
+
 interface FamilyProfile {
   id: string
   name: string
@@ -40,6 +54,7 @@ interface SettingsData {
   personalInfo: PersonalInfo
   bodyStats: BodyStats
   dailyGoals: DailyGoals
+  goals: GoalSettings
   familyProfiles: FamilyProfile[]
 }
 
@@ -68,6 +83,17 @@ const defaultSettings: SettingsData = {
     fat: '65',
     water: '8',
   },
+  goals: {
+    weightGoal: 'maintain',
+    targetWeight: '',
+    caloriePlanningMode: 'daily',
+    mealCalories: {
+      breakfast: '500',
+      lunch: '600',
+      dinner: '700',
+      snack: '200',
+    },
+  },
   familyProfiles: [],
 }
 
@@ -78,6 +104,11 @@ function loadSettings(): SettingsData {
       personalInfo: { ...defaultSettings.personalInfo, ...stored.personalInfo },
       bodyStats: { ...defaultSettings.bodyStats, ...stored.bodyStats },
       dailyGoals: { ...defaultSettings.dailyGoals, ...stored.dailyGoals },
+      goals: {
+        ...defaultSettings.goals,
+        ...stored.goals,
+        mealCalories: { ...defaultSettings.goals.mealCalories, ...(stored.goals?.mealCalories || {}) },
+      },
       familyProfiles: stored.familyProfiles || [],
     }
   } catch {
@@ -115,6 +146,7 @@ function profileToSettings(p: Record<string, unknown> | null): SettingsData | nu
       fat: String(p.daily_fat ?? 65),
       water: String(p.daily_water ?? 8),
     },
+    goals: defaultSettings.goals,
     familyProfiles: (p.family_profiles as FamilyProfile[]) || [],
   }
 }
@@ -198,6 +230,7 @@ function LocationButton({ onLocated }: { onLocated: (lat: string, lng: string) =
 }
 
 export default function SettingsPage() {
+  const { hasPro, hasPremium, familyProfileLimit } = useBillingAccess()
   const [settings, setSettings] = useState<SettingsData>(defaultSettings)
   const [saved, setSaved] = useState(false)
   const [expandedProfile, setExpandedProfile] = useState<string | null>(null)
@@ -211,7 +244,13 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((d) => {
         const fromDb = profileToSettings(d.profile)
-        if (fromDb) setSettings(fromDb)
+        if (fromDb) {
+          const cached = loadSettings()
+          setSettings({
+            ...fromDb,
+            goals: cached.goals,
+          })
+        }
       })
       .catch(() => { /* ignore — keep local cache */ })
   }, [])
@@ -255,7 +294,26 @@ export default function SettingsPage() {
     }))
   }
 
+  function updateGoals<K extends keyof GoalSettings>(field: K, value: GoalSettings[K]) {
+    setSettings((prev) => ({
+      ...prev,
+      goals: { ...prev.goals, [field]: value },
+    }))
+  }
+
+  function updateMealCalorieGoal(field: keyof GoalSettings['mealCalories'], value: string) {
+    setSettings((prev) => ({
+      ...prev,
+      goals: {
+        ...prev.goals,
+        mealCalories: { ...prev.goals.mealCalories, [field]: value },
+      },
+    }))
+  }
+
   function addProfile() {
+    if (!hasPro) return
+    if (settings.familyProfiles.length >= familyProfileLimit) return
     const newProfile: FamilyProfile = {
       id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
       name: '',
@@ -547,6 +605,106 @@ export default function SettingsPage() {
 
       {/* ── Section 4: Family Profiles ────────────────────────────── */}
       <div className="bg-card-bg border border-border rounded-2xl p-5 mb-4">
+        <h2 className="text-base font-bold text-foreground flex items-center gap-2 mb-4">
+          <Target className="w-5 h-5 text-primary" />
+          Planning Goals
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Weight Goal</label>
+            <select
+              value={settings.goals.weightGoal}
+              onChange={(e) => updateGoals('weightGoal', e.target.value as GoalSettings['weightGoal'])}
+              className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm bg-card-bg"
+            >
+              <option value="lose">Lose weight</option>
+              <option value="maintain">Maintain weight</option>
+              <option value="gain">Gain weight</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Target Weight (kg)</label>
+            <input
+              type="number"
+              value={settings.goals.targetWeight}
+              onChange={(e) => updateGoals('targetWeight', e.target.value)}
+              placeholder="68"
+              className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Calorie Recommendation Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => updateGoals('caloriePlanningMode', 'daily')}
+                className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                  settings.goals.caloriePlanningMode === 'daily'
+                    ? 'bg-primary text-white border-primary'
+                    : 'border-border text-foreground hover:bg-primary/10'
+                }`}
+              >
+                Use daily calories
+              </button>
+              <button
+                type="button"
+                onClick={() => updateGoals('caloriePlanningMode', 'per-meal')}
+                className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                  settings.goals.caloriePlanningMode === 'per-meal'
+                    ? 'bg-primary text-white border-primary'
+                    : 'border-border text-foreground hover:bg-primary/10'
+                }`}
+              >
+                Set per-meal calories
+              </button>
+            </div>
+          </div>
+
+          {settings.goals.caloriePlanningMode === 'per-meal' && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Breakfast (kcal)</label>
+                <input
+                  type="number"
+                  value={settings.goals.mealCalories.breakfast}
+                  onChange={(e) => updateMealCalorieGoal('breakfast', e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Lunch (kcal)</label>
+                <input
+                  type="number"
+                  value={settings.goals.mealCalories.lunch}
+                  onChange={(e) => updateMealCalorieGoal('lunch', e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Dinner (kcal)</label>
+                <input
+                  type="number"
+                  value={settings.goals.mealCalories.dinner}
+                  onChange={(e) => updateMealCalorieGoal('dinner', e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Snack (kcal)</label>
+                <input
+                  type="number"
+                  value={settings.goals.mealCalories.snack}
+                  onChange={(e) => updateMealCalorieGoal('snack', e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-card-bg border border-border rounded-2xl p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
@@ -554,17 +712,42 @@ export default function SettingsPage() {
           </h2>
           <button
             onClick={addProfile}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition-colors"
+            disabled={!hasPro || settings.familyProfiles.length >= familyProfileLimit}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4" /> Add Profile
           </button>
         </div>
 
-        {settings.familyProfiles.length === 0 ? (
+        {!hasPro ? (
+          <div className="mb-4">
+            <UpgradeNotice
+              plan="pro"
+              title="Family profiles are part of Pro"
+              description="Unlock shared household planning, allergy tracking, and excluded ingredient profiles with Pro."
+            />
+          </div>
+        ) : null}
+
+        {hasPro && !hasPremium && settings.familyProfiles.length >= familyProfileLimit ? (
+          <div className="mb-4">
+            <UpgradeNotice
+              plan="premium"
+              title="Premium unlocks unlimited family profiles"
+              description="Your Pro plan includes up to 2 family profiles. Upgrade when you need more household members."
+            />
+          </div>
+        ) : null}
+
+        {!hasPro || settings.familyProfiles.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground-foreground">
             <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No family profiles yet</p>
-            <p className="text-xs mt-1">Add profiles to track allergies and preferences for family members</p>
+            <p className="text-sm">{hasPro ? 'No family profiles yet' : 'Family profiles locked'}</p>
+            <p className="text-xs mt-1">
+              {hasPro
+                ? 'Add profiles to track allergies and preferences for family members'
+                : 'Upgrade to Pro to add household profiles for allergies and ingredient exclusions'}
+            </p>
           </div>
         ) : (
           <div className="space-y-3">

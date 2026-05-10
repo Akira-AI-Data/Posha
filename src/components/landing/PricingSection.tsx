@@ -1,60 +1,60 @@
 'use client';
 
-import Link from 'next/link';
 import { motion } from 'motion/react';
 import { ScrollReveal } from './ScrollReveal';
 import { Check, ArrowRight } from 'lucide-react';
+import { PricingCheckoutButton } from '@/components/billing/PricingCheckoutButton';
 
 const PLANS = [
   {
+    key: 'free',
     name: 'Free',
     price: '$0',
     period: 'forever',
-    desc: 'Get started with tracking and recipes.',
+    desc: 'Essentials for logging, tracking, and building better habits.',
     features: [
-      'AI photo scans (3/day)',
-      'Basic calorie & macro tracking',
-      'AI recipe generation (5/day)',
-      'Food database access',
+      'Food logging with edit and delete',
+      'Live calories, macros, and weekly progress',
+      'Recipe discovery and saved recipes',
+      'Pantry basics and dashboard tracking',
     ],
-    cta: 'Get Started',
+    cta: 'Start with essentials',
     popular: false,
     accent: false,
   },
   {
+    key: 'pro',
     name: 'Pro',
     price: '$9.99',
     period: '/month',
-    desc: 'Full power for the whole family.',
+    desc: 'Premium planning tools for households that want structure every week.',
     features: [
-      'Unlimited AI recipes',
-      'Weekly meal planner',
-      'Smart shopping list + pantry sync',
-      'Multi-profile (2 members)',
-      'Nutrition score & food group tracking',
-      'Allergy & cuisine filters',
+      'Goal-aware weekly meal planning',
+      'Shopping sync from your meal plan',
+      'Cuisine, ingredient, and nutrient-smart cookbook filters',
+      'Up to 2 family profiles with allergies and exclusions',
+      'Planning goals for daily or per-meal calorie targets',
+      'Plan refill suggestions when meals are removed',
     ],
-    cta: 'Start Pro Trial',
+    cta: 'Unlock Pro planning',
     popular: true,
     accent: true,
   },
   {
+    key: 'premium',
     name: 'Premium',
     price: '$19.99',
     period: '/month',
-    desc: 'For nutrition professionals and power users.',
+    desc: 'Full Posha intelligence for advanced nutrition guidance and family access.',
     features: [
-      'Everything in Family Pro',
-      'Unlimited AI photo scans',
+      'Everything in Pro',
+      'AI Advisor access',
+      'Advanced nutrition insights on your dashboard',
       'Unlimited family profiles',
-      'Advanced nutrition intelligence',
-      'AI Nutrition Advisor',
-      'Nutrient coverage heatmaps',
-      'Priority AI processing',
-      'Data export & integrations',
-      'Dedicated support',
+      'Premium nutrition guidance and recommendations',
+      'Priority access to premium intelligence features',
     ],
-    cta: 'Start Premium Trial',
+    cta: 'Unlock Premium guidance',
     popular: false,
     accent: false,
   },
@@ -68,10 +68,10 @@ export function PricingSection() {
           <div className="text-center mb-14">
             <p className="text-sm uppercase tracking-[0.2em] font-bold text-[#8A9A86] mb-4">Pricing</p>
             <h2 className="font-heading text-4xl md:text-5xl tracking-tight leading-[1.15] font-medium text-[#1A241C]">
-              Simple, transparent pricing
+              Premium nutrition, priced with clarity
             </h2>
             <p className="text-base md:text-lg text-[#4A544C] leading-relaxed mt-4">
-              Start free, upgrade when you&apos;re ready. No hidden fees.
+              Every tier reflects features already live in Posha today. Upgrade only when you want deeper planning and guidance.
             </p>
           </div>
         </ScrollReveal>
@@ -122,17 +122,19 @@ export function PricingSection() {
                   ))}
                 </ul>
 
-                <Link
-                  href="/dashboard"
-                  className={`flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-semibold text-sm transition-all duration-300 hover:-translate-y-0.5 ${
-                    plan.accent
-                      ? 'bg-white text-[#1E3F20] hover:bg-[#F9F8F6] hover:shadow-xl'
-                      : 'bg-[#1E3F20] text-white hover:bg-[#2A522D] hover:shadow-lg'
-                  }`}
-                >
-                  {plan.cta}
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
+                <div className="space-y-3">
+                  <PricingCheckoutButton
+                    plan={plan.key as 'free' | 'pro' | 'premium'}
+                    planName={plan.name}
+                    price={plan.price}
+                    period={plan.period}
+                    highlighted={plan.accent}
+                  />
+                  <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wide">
+                    <span className={plan.accent ? 'text-white' : 'text-[#51604F]'}>{plan.cta}</span>
+                    <ArrowRight className={`w-3.5 h-3.5 ${plan.accent ? 'text-white' : 'text-[#51604F]'}`} />
+                  </div>
+                </div>
               </motion.div>
             </ScrollReveal>
           ))}

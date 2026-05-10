@@ -205,4 +205,63 @@ describe('planNutritionSmartWeek', () => {
     expect(chosenMealNames).not.toContain('Berry Yogurt Bowl');
     expect(chosenMealNames).not.toContain('Apple Slices');
   });
+
+  it('prefers recipes closer to configured per-meal calorie goals', () => {
+    const recipes: Recipe[] = [
+      recipe({
+        name: 'Light Yogurt Bowl',
+        category: 'breakfast',
+        ingredients: ['1 cup yogurt', '1/2 cup berries'],
+        nutrients: ['Protein', 'Calcium'],
+      }),
+      recipe({
+        name: 'Hearty Fry Up',
+        category: 'breakfast',
+        ingredients: ['3 eggs', '2 slices bread', '2 tbsp butter', '2 sausages'],
+        nutrients: ['Protein', 'Iron', 'B Vitamins'],
+      }),
+      recipe({ name: 'Balanced Lunch', category: 'lunch', ingredients: ['1 cup rice', '1 chicken breast'] }),
+      recipe({ name: 'Balanced Dinner', category: 'dinner', ingredients: ['1 salmon fillet', '1 sweet potato'] }),
+      recipe({ name: 'Balanced Snack', category: 'snack', ingredients: ['1 banana', '1 tbsp peanut butter'] }),
+    ];
+
+    const result = planNutritionSmartWeek(
+      recipes,
+      ['2026-04-20'],
+      {
+        dailyGoals: { calories: '2200' },
+        goals: {
+          caloriePlanningMode: 'per-meal',
+          weightGoal: 'lose',
+          mealCalories: {
+            breakfast: '250',
+            lunch: '600',
+            dinner: '700',
+            snack: '200',
+          },
+        },
+      }
+    );
+
+    expect(result.plan['2026-04-20']?.breakfast?.name).toBe('Light Yogurt Bowl');
+  });
+
+  it('avoids suggestions the user already removed for a slot', () => {
+    const recipes: Recipe[] = [
+      recipe({ name: 'Plan A Breakfast', category: 'breakfast', ingredients: ['1 cup oats'] }),
+      recipe({ name: 'Plan B Breakfast', category: 'breakfast', ingredients: ['2 eggs'] }),
+      recipe({ name: 'Lunch Pick', category: 'lunch', ingredients: ['1 cup rice'] }),
+      recipe({ name: 'Dinner Pick', category: 'dinner', ingredients: ['1 salmon fillet'] }),
+      recipe({ name: 'Snack Pick', category: 'snack', ingredients: ['1 banana'] }),
+    ];
+
+    const result = planNutritionSmartWeek(
+      recipes,
+      ['2026-04-20'],
+      {},
+      { '2026-04-20': { breakfast: ['Plan A Breakfast'] } }
+    );
+
+    expect(result.plan['2026-04-20']?.breakfast?.name).toBe('Plan B Breakfast');
+  });
 });

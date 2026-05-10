@@ -1,7 +1,17 @@
 import { auth } from '@/lib/auth';
+import { isAdminEmail } from '@/lib/admin';
+import {
+  BILLING_PLAN_COOKIE,
+  BILLING_PLAN_EMAIL_COOKIE,
+  BILLING_PLAN_SIG_COOKIE,
+  getRequiredPlanForPath,
+  hasPlanAccess,
+  normalizeBillingPlan,
+} from '@/lib/billing';
+import { signBillingAccessEdge } from '@/lib/billing-edge';
 import { NextResponse } from 'next/server';
 
-export default auth((req) => {
+export default auth(async (req) => {
   const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
   const host = req.nextUrl.hostname;
@@ -16,8 +26,12 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl, 308);
   }
 
-  // Allow auth API routes
-  if (pathname.startsWith('/api/auth')) {
+  // Allow auth and public billing API routes
+  if (
+    pathname.startsWith('/api/auth') ||
+    pathname === '/api/billing/checkout' ||
+    pathname === '/api/billing/confirm'
+  ) {
     return NextResponse.next();
   }
 
@@ -26,6 +40,7 @@ export default auth((req) => {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/icons') ||
+    pathname.startsWith('/videos') ||
     pathname === '/sw.js' ||
     pathname === '/manifest.json'
   ) {
@@ -33,7 +48,7 @@ export default auth((req) => {
   }
 
   // Public pages accessible to everyone
-  const publicPages = ['/', '/pricing', '/login'];
+  const publicPages = ['/', '/pricing', '/login', '/pricing/success', '/privacy', '/delete-account'];
   const isPublicPage = publicPages.includes(pathname);
 
   // Allow public pages
@@ -44,6 +59,30 @@ export default auth((req) => {
   // Redirect unauthenticated users to login
   if (!isLoggedIn) {
     return NextResponse.redirect(new URL('/login', req.url));
+  }
+
+  const requiredPlan = getRequiredPlanForPath(pathname);
+  if (requiredPlan) {
+    const email = req.auth?.user?.email?.trim().toLowerCase();
+    if (!isAdminEmail(email)) {
+      const plan = normalizeBillingPlan(req.cookies.get(BILLING_PLAN_COOKIE)?.value);
+      const planEmail = req.cookies.get(BILLING_PLAN_EMAIL_COOKIE)?.value?.trim().toLowerCase() || '';
+      const sig = req.cookies.get(BILLING_PLAN_SIG_COOKIE)?.value || '';
+      const secret = process.env.AUTH_SECRET || '';
+      const expectedSig =
+        email && planEmail === email && sig && secret
+          ? await signBillingAccessEdge(plan, email, secret)
+          : '';
+      const hasAccess = planEmail === email && sig === expectedSig && hasPlanAccess(plan, requiredPlan);
+
+      if (!hasAccess) {
+        const upgradeUrl = req.nextUrl.clone();
+        upgradeUrl.pathname = '/pricing';
+        upgradeUrl.searchParams.set('upgrade', requiredPlan);
+        upgradeUrl.searchParams.set('from', pathname);
+        return NextResponse.redirect(upgradeUrl);
+      }
+    }
   }
 
   return NextResponse.next();

@@ -14,6 +14,12 @@ export interface PlannerSettings {
     carbs?: string;
     fat?: string;
   };
+  goals?: {
+    weightGoal?: 'lose' | 'maintain' | 'gain';
+    targetWeight?: string;
+    caloriePlanningMode?: 'daily' | 'per-meal';
+    mealCalories?: Partial<Record<MealType, string>>;
+  };
   familyProfiles?: PlannerFamilyProfile[];
 }
 
@@ -39,6 +45,8 @@ export interface WeekPlanResult {
   restrictions: DietaryRestrictions;
 }
 
+export type BlockedMealSuggestions = Partial<Record<string, Partial<Record<MealType, string[]>>>>;
+
 const mealTypes: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 const nutrientPriorities: Record<MealType, string[]> = {
@@ -53,6 +61,13 @@ const preferredPrepMinutes: Record<MealType, number> = {
   lunch: 30,
   dinner: 35,
   snack: 15,
+};
+
+const mealCalorieShares: Record<MealType, number> = {
+  breakfast: 0.25,
+  lunch: 0.3,
+  dinner: 0.35,
+  snack: 0.1,
 };
 
 const aliasMap: Record<string, string[]> = {
@@ -170,6 +185,128 @@ function parsePrepMinutes(prepTime?: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+export function estimateIngredientCalories(ingredient: string): number {
+  const normalized = normalizeText(ingredient);
+  const quantityMatch = normalized.match(/^([\d.\/]+)/);
+  let quantity = 1;
+
+  if (quantityMatch) {
+    const raw = quantityMatch[1];
+    if (raw.includes('/')) {
+      const [num, denom] = raw.split('/').map(Number);
+      quantity = num / (denom || 1);
+    } else {
+      quantity = Number(raw) || 1;
+    }
+  }
+
+  const perUnitCalories: Array<[string, number]> = [
+    ['olive oil', 119],
+    ['butter', 102],
+    ['ghee', 112],
+    ['cream', 52],
+    ['cheese', 110],
+    ['mozzarella', 85],
+    ['parmesan', 86],
+    ['feta', 75],
+    ['burrata', 150],
+    ['yogurt', 100],
+    ['milk', 120],
+    ['egg', 78],
+    ['eggs', 78],
+    ['chicken', 165],
+    ['beef', 220],
+    ['lamb', 250],
+    ['pork', 210],
+    ['salmon', 208],
+    ['shrimp', 85],
+    ['tofu', 90],
+    ['lentil', 115],
+    ['beans', 114],
+    ['bean', 114],
+    ['chickpea', 134],
+    ['rice', 205],
+    ['oats', 150],
+    ['pasta', 200],
+    ['bread', 80],
+    ['tortilla', 120],
+    ['pizza dough', 220],
+    ['baguette', 180],
+    ['croissant', 230],
+    ['banana', 105],
+    ['avocado', 120],
+    ['potato', 110],
+    ['sweet potato', 112],
+    ['peanut butter', 95],
+    ['peanut', 85],
+    ['almond', 82],
+    ['walnut', 95],
+    ['granola', 120],
+    ['honey', 64],
+    ['sugar', 48],
+    ['coconut milk', 120],
+    ['flour', 110],
+  ];
+
+  const matched = perUnitCalories.find(([term]) => normalized.includes(term));
+  if (!matched) {
+    if (normalized.includes('tomato') || normalized.includes('onion') || normalized.includes('spinach') || normalized.includes('pepper') || normalized.includes('cucumber') || normalized.includes('broccoli')) {
+      return 20 * quantity;
+    }
+    return 45 * quantity;
+  }
+
+  const [term, baseCalories] = matched;
+  if (normalized.includes('g ') || normalized.endsWith('g')) {
+    return (baseCalories / 100) * quantity;
+  }
+  if (normalized.includes('ml ') || normalized.endsWith('ml')) {
+    return (baseCalories / 240) * quantity;
+  }
+  if (normalized.includes('tbsp')) {
+    return (baseCalories / 1) * quantity;
+  }
+  if (normalized.includes('tsp')) {
+    return (baseCalories / 3) * quantity;
+  }
+  return baseCalories * quantity;
+}
+
+export function estimateRecipeCalories(recipe: Recipe): number {
+  const ingredientCalories = (recipe.ingredients ?? []).reduce(
+    (sum, ingredient) => sum + estimateIngredientCalories(ingredient),
+    0
+  );
+
+  return Math.max(Math.round(ingredientCalories), 120);
+}
+
+export function getMealCalorieTarget(mealType: MealType, settings: PlannerSettings): number | null {
+  const planningMode = settings.goals?.caloriePlanningMode ?? 'daily';
+  const explicitMealCalories = Number(settings.goals?.mealCalories?.[mealType] ?? 0);
+
+  if (planningMode === 'per-meal' && explicitMealCalories > 0) {
+    return explicitMealCalories;
+  }
+
+  const dailyCalories = Number(settings.dailyGoals?.calories ?? 0);
+  if (dailyCalories <= 0) return null;
+
+  let adjustedDailyCalories = dailyCalories;
+  switch (settings.goals?.weightGoal) {
+    case 'lose':
+      adjustedDailyCalories = Math.max(dailyCalories - 250, 1200);
+      break;
+    case 'gain':
+      adjustedDailyCalories = dailyCalories + 250;
+      break;
+    default:
+      break;
+  }
+
+  return Math.round(adjustedDailyCalories * mealCalorieShares[mealType]);
+}
+
 export function collectDietaryRestrictions(settings: PlannerSettings): DietaryRestrictions {
   const allergyLabels = new Set<string>();
   const excludedTerms = new Set<string>();
@@ -244,22 +381,30 @@ export function recipeMatchesDietaryRestrictions(
 function scoreRecipe(
   recipe: Recipe,
   mealType: MealType,
+  date: string,
   settings: PlannerSettings,
   usedRecipeCounts: Map<string, number>,
   usedCuisineCounts: Map<string, number>,
   usedNutrients: Set<string>,
-  previousRecipeByMeal: Partial<Record<MealType, string>>
+  previousRecipeByMeal: Partial<Record<MealType, string>>,
+  blockedSuggestions: BlockedMealSuggestions
 ): number {
   const nutrients = recipe.nutrients ?? [];
   const preferredNutrients = nutrientPriorities[mealType];
   const proteinGoal = Number(settings.dailyGoals?.protein ?? 0);
   const calorieGoal = Number(settings.dailyGoals?.calories ?? 0);
+  const targetMealCalories = getMealCalorieTarget(mealType, settings);
+  const estimatedCalories = estimateRecipeCalories(recipe);
   const prepMinutes = parsePrepMinutes(recipe.prepTime);
   const cuisineKey = normalizeText(recipe.cuisine ?? 'unknown');
   const usedCount = usedRecipeCounts.get(recipe.name) ?? 0;
   const cuisineCount = usedCuisineCounts.get(cuisineKey) ?? 0;
+  const blockedForSlot = blockedSuggestions[date]?.[mealType] ?? [];
 
   let score = 0;
+  if (blockedForSlot.includes(recipe.name)) {
+    return -1000;
+  }
   score += nutrients.length * 1.25;
   score += preferredNutrients.filter((nutrient) => nutrients.includes(nutrient)).length * 4;
   score += nutrients.filter((nutrient) => !usedNutrients.has(nutrient)).length * 1.5;
@@ -269,6 +414,27 @@ function scoreRecipe(
   }
 
   if (calorieGoal > 0 && calorieGoal <= 1800 && nutrients.includes('Fiber')) {
+    score += 2;
+  }
+
+  if (targetMealCalories) {
+    const calorieDelta = Math.abs(estimatedCalories - targetMealCalories);
+    if (calorieDelta <= 75) {
+      score += 7;
+    } else if (calorieDelta <= 150) {
+      score += 4;
+    } else if (calorieDelta <= 250) {
+      score += 1;
+    } else {
+      score -= Math.min(calorieDelta / 90, 6);
+    }
+  }
+
+  if (settings.goals?.weightGoal === 'lose' && estimatedCalories <= (targetMealCalories ?? 450)) {
+    score += 2;
+  }
+
+  if (settings.goals?.weightGoal === 'gain' && estimatedCalories >= (targetMealCalories ?? 550)) {
     score += 2;
   }
 
@@ -300,7 +466,8 @@ function scoreRecipe(
 export function planNutritionSmartWeek(
   recipes: Recipe[],
   weekDates: string[],
-  settings: PlannerSettings = {}
+  settings: PlannerSettings = {},
+  blockedSuggestions: BlockedMealSuggestions = {}
 ): WeekPlanResult {
   const restrictions = collectDietaryRestrictions(settings);
   const allowedRecipes = recipes.filter((recipe) =>
@@ -337,20 +504,24 @@ export function planNutritionSmartWeek(
             scoreRecipe(
               b,
               mealType,
+              date,
               settings,
               usedRecipeCounts,
               usedCuisineCounts,
               usedNutrients,
-              previousRecipeByMeal
+              previousRecipeByMeal,
+              blockedSuggestions
             ) -
             scoreRecipe(
               a,
               mealType,
+              date,
               settings,
               usedRecipeCounts,
               usedCuisineCounts,
               usedNutrients,
-              previousRecipeByMeal
+              previousRecipeByMeal,
+              blockedSuggestions
             );
 
           return scoreDelta || a.name.localeCompare(b.name);

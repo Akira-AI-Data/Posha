@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ShoppingCart, Plus, Trash2, Check, ArrowRight, RefreshCw, ShoppingBag, PackageOpen, CheckCircle2 } from 'lucide-react'
 import { ReminderStatus } from '@/components/shopping/ReminderStatus'
+import { RECIPES, type Recipe } from '@/data/recipes'
 
 // Capitalise first letter of every word
 function titleCase(s: string): string {
@@ -64,6 +65,14 @@ function loadPantry(): PantryItem[] {
 
 function savePantry(items: PantryItem[]) {
   localStorage.setItem(PANTRY_KEY, JSON.stringify(items))
+}
+
+function loadSavedRecipes(): Recipe[] {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_RECIPES_KEY) || '[]')
+  } catch {
+    return []
+  }
 }
 
 function getWeekDates(): string[] {
@@ -239,7 +248,14 @@ export default function ShoppingPage() {
   function handleSync() {
     try {
       const mealPlan: MealPlanData = JSON.parse(localStorage.getItem(MEALPLAN_KEY) || '{}')
-      const savedRecipes = JSON.parse(localStorage.getItem(SAVED_RECIPES_KEY) || '[]')
+      const savedRecipes = loadSavedRecipes()
+      const recipeLookup = new Map<string, Recipe>()
+      for (const recipe of RECIPES) {
+        recipeLookup.set(recipe.name.toLowerCase(), recipe)
+      }
+      for (const recipe of savedRecipes) {
+        recipeLookup.set(recipe.name.toLowerCase(), recipe)
+      }
       const weekDates = getWeekDates()
       const pantry = loadPantry()
       const pantryNames = new Set(pantry.map((p) => p.name.toLowerCase()))
@@ -252,7 +268,7 @@ export default function ShoppingPage() {
         for (const mealType of Object.keys(dayPlan)) {
           const meal = dayPlan[mealType]
           if (!meal?.name) continue
-          const recipe = savedRecipes.find((r: { name: string }) => r.name === meal.name)
+          const recipe = recipeLookup.get(meal.name.toLowerCase())
           if (!recipe?.ingredients) continue
           for (const ing of recipe.ingredients as string[]) {
             const parsed = parseIngredient(ing)
@@ -388,46 +404,10 @@ export default function ShoppingPage() {
         </div>
       ) : (
         <>
-          {/* Unchecked Items */}
-          <div className="space-y-2 mb-6">
-            {unchecked.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between gap-2 bg-card-bg rounded-xl px-4 py-3 border border-border group"
-              >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <button
-                    onClick={() => toggleItem(item.id)}
-                    className="w-5 h-5 rounded-full border-2 border-border hover:border-primary transition-colors flex-shrink-0"
-                  />
-                  <span className="text-sm font-medium text-foreground">{titleCase(item.name)}</span>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {item.qty} {item.unit}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => moveToPantry(item)}
-                    className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
-                    title="Move to Pantry"
-                  >
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => removeItem(item.id)}
-                    className="p-1.5 text-muted-foreground-foreground hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
           {/* Checked Items */}
           {checked.length > 0 && (
-            <>
-              <div className="flex items-center justify-between mb-2">
+            <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+              <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   Purchased ({checked.length})
                 </p>
@@ -465,8 +445,44 @@ export default function ShoppingPage() {
                   </div>
                 ))}
               </div>
-            </>
+            </div>
           )}
+
+          {/* Unchecked Items */}
+          <div className="space-y-2 mb-6">
+            {unchecked.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between gap-2 bg-card-bg rounded-xl px-4 py-3 border border-border group"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <button
+                    onClick={() => toggleItem(item.id)}
+                    className="w-5 h-5 rounded-full border-2 border-border hover:border-primary transition-colors flex-shrink-0"
+                  />
+                  <span className="text-sm font-medium text-foreground">{titleCase(item.name)}</span>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {item.qty} {item.unit}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => moveToPantry(item)}
+                    className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                    title="Move to Pantry"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    className="p-1.5 text-muted-foreground-foreground hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </>
       )}
     </div>

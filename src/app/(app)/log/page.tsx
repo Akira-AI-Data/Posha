@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   CheckCircle2,
+  Copy,
   Pencil,
   Flame,
   Loader2,
@@ -12,6 +13,7 @@ import {
   ScanBarcode,
   Search,
   Sparkles,
+  History,
   UtensilsCrossed,
   Wheat,
   Beef,
@@ -24,16 +26,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RECIPES } from '@/data/recipes';
 import {
+  buildDecisionSupportSummary,
   createMealId,
   deleteLoggedMeal,
   getLocalDateKey,
   loadLoggedMeals,
   syncMealToMealPlan,
   type LoggedMeal,
+  type DecisionSupportSummary,
   type MealType,
   saveLoggedMeals,
   updateLoggedMeal,
 } from '@/lib/nutritionTracker';
+import type { MealPhotoAnalysis } from '@/lib/mealPhoto';
 
 interface FoodItem {
   name: string;
@@ -50,11 +55,13 @@ interface FoodItem {
 interface ParsedMeal {
   name: string;
   serving: string;
+  estimatedGrams?: number;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
   ingredients: string[];
+  confidence?: number;
   notes?: string;
 }
 
@@ -144,11 +151,13 @@ function parseDescribeFallback(input: string): ParsedMeal {
   return {
     name,
     serving: '1 serving',
+    estimatedGrams: undefined,
     calories,
     protein,
     carbs,
     fat,
     ingredients,
+    confidence: 0.45,
     notes: 'Estimated from your description.',
   };
 }
@@ -172,11 +181,13 @@ function parsePhotoFallback(file: File): ParsedMeal {
   return {
     name: title,
     serving: '1 serving',
+    estimatedGrams: undefined,
     calories: 350,
     protein: 20,
     carbs: 30,
     fat: 14,
     ingredients: ingredients.length > 0 ? ingredients : ['Review ingredients manually'],
+    confidence: 0.25,
     notes: 'AI image analysis is unavailable on this deployment, so this was created for manual review.',
   };
 }
@@ -193,11 +204,13 @@ function parseAiMealResponse(text: string): ParsedMeal | null {
         return {
           name: parsed.name,
           serving: parsed.serving || '1 serving',
+          estimatedGrams: Number(parsed.estimatedGrams) || undefined,
           calories: Number(parsed.calories) || 0,
           protein: Number(parsed.protein) || 0,
           carbs: Number(parsed.carbs) || 0,
           fat: Number(parsed.fat) || 0,
           ingredients: parsed.ingredients.map(normalizeIngredient).filter(Boolean),
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
           notes: parsed.notes,
         };
       }
@@ -220,11 +233,13 @@ function parseAiMealResponse(text: string): ParsedMeal | null {
   return {
     name: nameLine.replace(/^meal|^dish|^name\s*[:=-]?/i, '').trim() || 'Captured meal',
     serving: '1 serving',
+    estimatedGrams: undefined,
     calories: parseNutritionText(candidate, 'calories'),
     protein: parseNutritionText(candidate, 'protein'),
     carbs: parseNutritionText(candidate, 'carbs'),
     fat: parseNutritionText(candidate, 'fat'),
     ingredients,
+    confidence: undefined,
     notes: 'Parsed from AI capture.',
   };
 }
@@ -329,7 +344,7 @@ function CaptureModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg bg-card rounded-3xl border border-border shadow-2xl"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 p-5 border-b border-border">
@@ -344,7 +359,7 @@ function CaptureModal({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
@@ -361,11 +376,40 @@ export default function LogFoodPage() {
   const [captureMode, setCaptureMode] = useState<'photo' | 'barcode' | 'describe' | null>(null);
   const [captureText, setCaptureText] = useState('');
   const [barcode, setBarcode] = useState('');
+  const [scannerSupported, setScannerSupported] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scannerStatus, setScannerStatus] = useState('Point camera at barcode');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [captureResult, setCaptureResult] = useState<ParsedMeal | null>(null);
   const [captureError, setCaptureError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [decisionSupport, setDecisionSupport] = useState<DecisionSupportSummary>(buildDecisionSupportSummary());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const barcodeFileInputRef = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanFrameRef = useRef<number | null>(null);
+  const scannerTimeoutRef = useRef<number | null>(null);
+  const captureActionsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setScannerSupported(typeof window !== 'undefined' && 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scanFrameRef.current) cancelAnimationFrame(scanFrameRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+      if (scannerTimeoutRef.current) window.clearTimeout(scannerTimeoutRef.current);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
+
+  useEffect(() => {
+    if (!captureResult || !captureActionsRef.current) return;
+    captureActionsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [captureResult]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -398,9 +442,34 @@ export default function LogFoodPage() {
     [activeMealType, loggedMeals]
   );
 
+  const yesterdayMealEntries = useMemo(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = getLocalDateKey(yesterday);
+
+    return loggedMeals
+      .filter((meal) => meal.mealType === activeMealType && meal.linkedDate === yesterdayKey)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [activeMealType, loggedMeals]);
+
+  const recentTemplates = useMemo(() => {
+    const seen = new Set<string>();
+    return loggedMeals
+      .filter((meal) => meal.mealType === activeMealType)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .filter((meal) => {
+        const key = `${meal.name.toLowerCase()}|${meal.serving.toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
+  }, [activeMealType, loggedMeals]);
+
   function persistMeals(nextMeals: LoggedMeal[]) {
     setLoggedMeals(nextMeals);
     saveLoggedMeals(nextMeals);
+    setDecisionSupport(buildDecisionSupportSummary());
   }
 
   function addMeal(meal: ParsedMeal, source: LoggedMeal['source'], options?: { syncToMealPlan?: boolean }) {
@@ -430,9 +499,27 @@ export default function LogFoodPage() {
   }
 
   function resetCaptureState(mode: 'photo' | 'barcode' | 'describe' | null) {
+    if (scanFrameRef.current) {
+      cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
+    }
+    if (scannerTimeoutRef.current) {
+      window.clearTimeout(scannerTimeoutRef.current);
+      scannerTimeoutRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl('');
+    }
     setCaptureMode(mode);
     setCaptureText('');
     setBarcode('');
+    setScannerActive(false);
+    setScannerStatus('Point camera at barcode');
     setSelectedImage(null);
     setCaptureResult(null);
     setCaptureError('');
@@ -452,6 +539,23 @@ export default function LogFoodPage() {
         notes: 'Added from food library.',
       },
       'quick-add'
+    );
+  }
+
+  function repeatMeal(entry: LoggedMeal, syncToMealPlan = false) {
+    addMeal(
+      {
+        name: entry.name,
+        serving: entry.serving,
+        calories: entry.calories,
+        protein: entry.protein,
+        carbs: entry.carbs,
+        fat: entry.fat,
+        ingredients: entry.ingredients,
+        notes: 'Repeated from saved history.',
+      },
+      'manual',
+      { syncToMealPlan }
     );
   }
 
@@ -547,24 +651,41 @@ export default function LogFoodPage() {
     setCaptureError('');
 
     try {
-      const prompt =
-        'Look at this food photo and return JSON only with keys name, serving, calories, protein, carbs, fat, ingredients, notes. ' +
-        'Identify the main meal and list the visible ingredients. If portions are unclear, estimate a reasonable single serving.';
-      const parsed = await analyzeWithAi({ prompt, imageFile: selectedImage });
-      setCaptureResult(parsed ?? parsePhotoFallback(selectedImage));
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Could not analyze the meal photo.';
+      const response = await fetch('/api/analyze-meal-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: {
+            name: selectedImage.name,
+            type: selectedImage.type,
+            content: await readFileAsBase64(selectedImage),
+          },
+        }),
+      });
 
-      if (message.includes('AI features are not configured')) {
-        setCaptureResult(parsePhotoFallback(selectedImage));
-        setCaptureError('AI photo analysis is unavailable here, so we created a manual-review meal card instead.');
-      } else {
-        setCaptureError(message);
+      if (!response.ok) {
+        throw new Error(await response.text());
       }
+
+      const payload = (await response.json()) as { analysis?: MealPhotoAnalysis };
+      if (!payload.analysis) {
+        throw new Error('Could not analyze the meal photo.');
+      }
+
+      setCaptureResult(payload.analysis);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not analyze the meal photo.';
+      setCaptureResult(parsePhotoFallback(selectedImage));
+      setCaptureError(`Could not identify this photo confidently. We created an editable draft instead. ${message}`);
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function createPhotoDraft() {
+    if (!selectedImage) return;
+    setCaptureResult(parsePhotoFallback(selectedImage));
+    setCaptureError('Photo added as editable draft. Review ingredients, portions, and macros before saving.');
   }
 
   function handleBarcodeLookup() {
@@ -581,13 +702,166 @@ export default function LogFoodPage() {
     setCaptureResult({
       name: match.name,
       serving: match.portion,
+      estimatedGrams: undefined,
       calories: match.cal,
       protein: match.protein,
       carbs: match.carbs,
       fat: match.fat,
       ingredients: match.ingredients ?? [match.name],
+      confidence: 0.96,
       notes: `Matched barcode ${barcode.trim()}.`,
     });
+  }
+
+  function handleBarcodeLookupWithCode(code: string) {
+    setBarcode(code);
+    setCaptureError('');
+    const match = popularFoods.find((food) => food.barcode === code.trim());
+    if (!match) {
+      setCaptureResult(null);
+      setCaptureError(`Barcode ${code} not found in current catalog.`);
+      return;
+    }
+
+    setCaptureResult({
+      name: match.name,
+      serving: match.portion,
+      estimatedGrams: undefined,
+      calories: match.cal,
+      protein: match.protein,
+      carbs: match.carbs,
+      fat: match.fat,
+      ingredients: match.ingredients ?? [match.name],
+      confidence: 0.96,
+      notes: `Matched barcode ${code}.`,
+    });
+  }
+
+  async function handleBarcodeImageCapture(file: File) {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl('');
+    }
+
+    setSelectedImage(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+    setCaptureError('');
+    setCaptureResult(null);
+    setIsSubmitting(true);
+
+    try {
+      if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
+        throw new Error('Barcode photo scan is not supported on this device.');
+      }
+
+      const detector = new BarcodeDetector({
+        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
+      });
+      const bitmap = await createImageBitmap(file);
+
+      try {
+        const results = await detector.detect(bitmap);
+        const code = results.find((item) => item.rawValue)?.rawValue?.trim();
+        if (!code) {
+          throw new Error('No barcode found in the photo. Try a sharper, closer image.');
+        }
+        handleBarcodeLookupWithCode(code);
+        setScannerStatus(`Detected ${code} from photo`);
+      } finally {
+        bitmap.close();
+      }
+    } catch (error) {
+      setCaptureError(error instanceof Error ? error.message : 'Could not read barcode from photo.');
+      setScannerStatus('Use barcode photo or type barcode manually');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function startBarcodeScanner() {
+    if (!scannerSupported) {
+      setCaptureError('Live camera scan is not supported here. Use barcode photo or manual barcode entry below.');
+      return;
+    }
+
+    try {
+      setCaptureError('');
+      setScannerStatus('Starting camera...');
+      stopBarcodeScanner();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScannerActive(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      scannerTimeoutRef.current = window.setTimeout(() => {
+        const video = videoRef.current;
+        if (!video || video.readyState < 2) {
+          stopBarcodeScanner();
+          setCaptureError('Camera did not start on this browser. Use Scan from photo below.');
+          setScannerStatus('Live camera unavailable');
+        }
+      }, 5000);
+
+      const detector = new BarcodeDetector({
+        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
+      });
+
+      const scan = async () => {
+        const video = videoRef.current;
+        if (!video || video.readyState < 2) {
+          scanFrameRef.current = requestAnimationFrame(scan);
+          return;
+        }
+
+        if (scannerTimeoutRef.current) {
+          window.clearTimeout(scannerTimeoutRef.current);
+          scannerTimeoutRef.current = null;
+        }
+
+        try {
+          const results = await detector.detect(video);
+          const code = results.find((item) => item.rawValue)?.rawValue?.trim();
+          if (code) {
+            setScannerStatus(`Detected ${code}`);
+            stopBarcodeScanner();
+            handleBarcodeLookupWithCode(code);
+            return;
+          }
+          setScannerStatus('Scanning...');
+        } catch {
+          setScannerStatus('Camera active. Hold barcode steady.');
+        }
+
+        scanFrameRef.current = requestAnimationFrame(scan);
+      };
+
+      scanFrameRef.current = requestAnimationFrame(scan);
+    } catch (error) {
+      setScannerActive(false);
+      setCaptureError(error instanceof Error ? error.message : 'Could not access camera for barcode scanning.');
+    }
+  }
+
+  function stopBarcodeScanner() {
+    if (scanFrameRef.current) {
+      cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setScannerActive(false);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   }
 
   function confirmCapture() {
@@ -624,7 +898,7 @@ export default function LogFoodPage() {
                 {
                   id: 'photo',
                   label: 'Take Photo',
-                  desc: 'Capture meal + ingredients',
+                  desc: 'Photo -> editable meal draft',
                   icon: Camera,
                   cls: 'border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10',
                   iconCls: 'bg-primary/15 text-primary',
@@ -633,7 +907,7 @@ export default function LogFoodPage() {
                 {
                   id: 'barcode',
                   label: 'Scan Barcode',
-                  desc: 'Lookup packaged food',
+                  desc: 'Use camera on packaged food',
                   icon: ScanBarcode,
                   cls: 'border border-border bg-card hover:border-primary/30',
                   iconCls: 'bg-orange-100 text-orange-600 dark:bg-orange-900/20',
@@ -730,6 +1004,60 @@ export default function LogFoodPage() {
                 )}
               </CardContent>
             </Card>
+
+            {(yesterdayMealEntries.length > 0 || recentTemplates.length > 0) ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Saved Meals & Repeat Actions
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {yesterdayMealEntries.length > 0 ? (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <History className="w-4 h-4 text-primary" />
+                        <p className="text-sm font-semibold text-foreground">Repeat yesterday</p>
+                      </div>
+                      <div className="grid gap-2">
+                        {yesterdayMealEntries.slice(0, 2).map((entry) => (
+                          <div key={`y-${entry.id}`} className="rounded-xl border border-border bg-background/60 p-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">{entry.name}</p>
+                              <p className="text-[11px] text-muted-foreground">{entry.serving} · {entry.calories} cal</p>
+                            </div>
+                            <button
+                              onClick={() => repeatMeal(entry, true)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-primary text-white px-3 py-1.5 text-xs font-semibold hover:bg-primary/90"
+                            >
+                              <Copy className="w-3 h-3" />
+                              Repeat
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {recentTemplates.length > 0 ? (
+                    <div>
+                      <p className="text-sm font-semibold text-foreground mb-2">Recent templates</p>
+                      <div className="flex flex-wrap gap-2">
+                        {recentTemplates.map((entry) => (
+                          <button
+                            key={`r-${entry.id}`}
+                            onClick={() => repeatMeal(entry)}
+                            className="rounded-full border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/40 transition-colors"
+                          >
+                            {entry.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
 
             <Card>
               <CardHeader className="pb-2">
@@ -869,6 +1197,16 @@ export default function LogFoodPage() {
                     >
                       Log Food
                     </button>
+                    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                      <p className="text-sm font-semibold text-foreground">{decisionSupport.headline}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{decisionSupport.summary}</p>
+                      {decisionSupport.suggestions[0] ? (
+                        <div className="mt-3 rounded-xl bg-background/70 border border-border px-3 py-2.5">
+                          <p className="text-sm font-medium text-foreground">{decisionSupport.suggestions[0].recipeName}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{decisionSupport.suggestions[0].why}</p>
+                        </div>
+                      ) : null}
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -880,7 +1218,7 @@ export default function LogFoodPage() {
       {captureMode === 'photo' && (
         <CaptureModal
           title="Take Photo"
-          description="Upload a meal photo and Posha will estimate the meal, ingredients, and macros."
+          description="Upload a meal photo and Posha will estimate the meal, ingredients, and macros. Review before saving."
           onClose={() => resetCaptureState(null)}
         >
           <div className="space-y-4">
@@ -892,7 +1230,12 @@ export default function LogFoodPage() {
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
+                if (imagePreviewUrl) {
+                  URL.revokeObjectURL(imagePreviewUrl);
+                  setImagePreviewUrl('');
+                }
                 setSelectedImage(file);
+                if (file) setImagePreviewUrl(URL.createObjectURL(file));
                 setCaptureResult(null);
                 setCaptureError('');
               }}
@@ -914,6 +1257,34 @@ export default function LogFoodPage() {
             >
               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Analyze meal photo'}
             </button>
+            {captureResult ? (
+              <div
+                ref={captureActionsRef}
+                className="rounded-2xl border border-border bg-background/95 px-4 py-3 shadow-sm"
+              >
+                <button
+                  onClick={confirmCapture}
+                  className="w-full rounded-xl bg-foreground py-3 text-sm font-semibold text-white shadow-sm"
+                >
+                  Continue and save meal
+                </button>
+                <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                  You can edit ingredients, grams, and macros right after saving.
+                </p>
+              </div>
+            ) : null}
+            {imagePreviewUrl ? (
+              <div className="rounded-2xl overflow-hidden border border-border">
+                <img src={imagePreviewUrl} alt="Meal preview" className="w-full h-52 object-cover" />
+              </div>
+            ) : null}
+            <button
+              onClick={createPhotoDraft}
+              disabled={!selectedImage || isSubmitting}
+              className="w-full rounded-xl border border-border bg-background py-2.5 font-semibold text-sm disabled:opacity-60"
+            >
+              Use photo as editable draft
+            </button>
             {captureError ? <p className="text-sm text-red-500">{captureError}</p> : null}
             {captureResult ? (
               <div className="rounded-2xl border border-border bg-background p-4 space-y-2">
@@ -921,14 +1292,18 @@ export default function LogFoodPage() {
                   <CheckCircle2 className="w-4 h-4 text-primary" />
                   <p className="text-sm font-semibold">{captureResult.name}</p>
                 </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] font-medium text-amber-800">AI estimate only. Confirm ingredients, serving, and macros or edit after saving.</p>
+                </div>
                 <p className="text-xs text-muted-foreground">{captureResult.serving}</p>
+                {typeof captureResult.estimatedGrams === 'number' ? (
+                  <p className="text-xs text-muted-foreground">Estimated weight: {captureResult.estimatedGrams}g</p>
+                ) : null}
+                {typeof captureResult.confidence === 'number' ? (
+                  <p className="text-xs text-muted-foreground">AI confidence: {Math.round(captureResult.confidence * 100)}%</p>
+                ) : null}
                 <p className="text-xs text-foreground">Ingredients: {captureResult.ingredients.join(', ') || 'Not detected'}</p>
-                <button
-                  onClick={confirmCapture}
-                  className="w-full rounded-xl bg-foreground text-white py-2.5 text-sm font-semibold"
-                >
-                  Save captured meal
-                </button>
+                {captureResult.notes ? <p className="text-[11px] text-muted-foreground">{captureResult.notes}</p> : null}
               </div>
             ) : null}
           </div>
@@ -938,10 +1313,64 @@ export default function LogFoodPage() {
       {captureMode === 'barcode' && (
         <CaptureModal
           title="Scan Barcode"
-          description="Enter a barcode from a packaged food to pull its nutrition and ingredients."
+          description="Use your camera on packaged food. If live scan does not open on mobile, snap a barcode photo instead."
           onClose={() => resetCaptureState(null)}
         >
           <div className="space-y-4">
+            <input
+              ref={barcodeFileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                if (file) {
+                  void handleBarcodeImageCapture(file);
+                }
+                event.currentTarget.value = '';
+              }}
+            />
+            {scannerSupported ? (
+              <div className="space-y-3">
+                <div className="rounded-2xl overflow-hidden border border-border bg-black">
+                  {scannerActive ? (
+                    <video ref={videoRef} playsInline muted className="w-full h-56 object-cover" />
+                  ) : (
+                    <div className="h-56 flex items-center justify-center text-sm text-white/80 px-6 text-center">
+                      Camera barcode scanner ready
+                    </div>
+                  )}
+                </div>
+                {!scannerActive ? (
+                  <button
+                    onClick={startBarcodeScanner}
+                    className="w-full rounded-xl bg-primary text-white py-2.5 font-semibold text-sm"
+                  >
+                    Start camera scan
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopBarcodeScanner}
+                    className="w-full rounded-xl border border-border bg-background py-2.5 font-semibold text-sm"
+                  >
+                    Stop scanner
+                  </button>
+                )}
+                <p className="text-xs text-muted-foreground">{scannerStatus}</p>
+              </div>
+            ) : null}
+            <button
+              onClick={() => barcodeFileInputRef.current?.click()}
+              className="w-full rounded-xl border border-border bg-background py-2.5 font-semibold text-sm"
+            >
+              Scan from photo
+            </button>
+            {selectedImage ? (
+              <p className="text-xs text-muted-foreground">
+                {isSubmitting ? 'Reading barcode from photo...' : `Barcode photo: ${selectedImage.name}`}
+              </p>
+            ) : null}
             <input
               type="text"
               placeholder="e.g. 9300605123451"
@@ -953,7 +1382,7 @@ export default function LogFoodPage() {
               onClick={handleBarcodeLookup}
               className="w-full rounded-xl bg-primary text-white py-2.5 font-semibold text-sm"
             >
-              Lookup barcode
+              Lookup typed barcode
             </button>
             <p className="text-xs text-muted-foreground">
               Sample demo barcodes: 9300605123451, 9300605987654, 9312345678901
@@ -962,13 +1391,19 @@ export default function LogFoodPage() {
             {captureResult ? (
               <div className="rounded-2xl border border-border bg-background p-4 space-y-2">
                 <p className="text-sm font-semibold">{captureResult.name}</p>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] font-medium text-amber-800">Barcode matched current catalog. If pack size differs, edit after saving.</p>
+                </div>
                 <p className="text-xs text-muted-foreground">{captureResult.serving}</p>
+                {typeof captureResult.confidence === 'number' ? (
+                  <p className="text-xs text-muted-foreground">Match confidence: {Math.round(captureResult.confidence * 100)}%</p>
+                ) : null}
                 <p className="text-xs text-foreground">Ingredients: {captureResult.ingredients.join(', ')}</p>
                 <button
                   onClick={confirmCapture}
                   className="w-full rounded-xl bg-foreground text-white py-2.5 text-sm font-semibold"
                 >
-                  Save barcode item
+                  Confirm and save
                 </button>
               </div>
             ) : null}
@@ -979,7 +1414,7 @@ export default function LogFoodPage() {
       {captureMode === 'describe' && (
         <CaptureModal
           title="Describe It"
-          description="Describe your meal in plain language and Posha will turn it into a logged meal with ingredients."
+          description="Describe your meal in plain language and Posha will turn it into a logged meal with ingredients. Review before saving."
           onClose={() => resetCaptureState(null)}
         >
           <div className="space-y-4">
@@ -1004,12 +1439,16 @@ export default function LogFoodPage() {
                   <Sparkles className="w-4 h-4 text-primary" />
                   <p className="text-sm font-semibold">{captureResult.name}</p>
                 </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] font-medium text-amber-800">Posha may estimate portions when your description is vague. Confirm or edit after saving.</p>
+                </div>
                 <p className="text-xs text-foreground">Ingredients: {captureResult.ingredients.join(', ')}</p>
+                {captureResult.notes ? <p className="text-[11px] text-muted-foreground">{captureResult.notes}</p> : null}
                 <button
                   onClick={confirmCapture}
                   className="w-full rounded-xl bg-foreground text-white py-2.5 text-sm font-semibold"
                 >
-                  Save described meal
+                  Confirm and save
                 </button>
               </div>
             ) : null}

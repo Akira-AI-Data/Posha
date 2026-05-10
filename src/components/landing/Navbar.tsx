@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Logo } from './Logo';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 const navLinks = [
   { label: 'Features', href: '#features' },
@@ -50,6 +51,9 @@ export function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-3">
+          <div className="scale-95 origin-right">
+            <ThemeToggle compact />
+          </div>
           <Link
             href="/login"
             className="text-sm font-medium text-muted hover:text-foreground transition-colors px-4 py-2"
@@ -65,13 +69,18 @@ export function Navbar() {
         </div>
 
         {/* Mobile menu button */}
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="md:hidden p-2 text-foreground"
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="md:hidden flex items-center gap-2">
+          <div className="scale-90 origin-right">
+            <ThemeToggle compact />
+          </div>
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="p-2 text-foreground"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </nav>
 
       {/* Mobile menu */}
@@ -81,7 +90,7 @@ export function Navbar() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-white/95 backdrop-blur-md border-b border-border overflow-hidden"
+            className="md:hidden bg-white/95 dark:bg-gray-950/95 backdrop-blur-md border-b border-border overflow-hidden"
           >
             <div className="px-4 py-4 flex flex-col gap-3">
               {navLinks.map((link) => (

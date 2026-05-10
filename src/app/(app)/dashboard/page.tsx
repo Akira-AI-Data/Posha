@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { UpgradeNotice } from '@/components/billing/UpgradeNotice';
+import { useBillingAccess } from '@/hooks/useBillingAccess';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -29,10 +31,12 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  buildDecisionSupportSummary,
   buildDailyNutritionSummary,
   buildNutritionInsights,
   buildRecentMeals,
   buildWeeklyCalories,
+  type DecisionSupportSummary,
   TRACKER_EVENT,
   type NutritionInsights,
   type RecentMealItem,
@@ -129,6 +133,7 @@ function getWeekLabel(points: WeeklyCaloriePoint[]) {
 }
 
 export default function DashboardPage() {
+  const { hasPremium } = useBillingAccess();
   const { data: session } = useSession();
   const [profileName, setProfileName] = useState('');
   const [weekOffset, setWeekOffset] = useState(0);
@@ -136,6 +141,7 @@ export default function DashboardPage() {
   const [nutritionInsights, setNutritionInsights] = useState<NutritionInsights>(buildNutritionInsights());
   const [dailySummary, setDailySummary] = useState(buildDailyNutritionSummary());
   const [weeklyCalories, setWeeklyCalories] = useState<WeeklyCaloriePoint[]>(buildWeeklyCalories(new Date()));
+  const [decisionSupport, setDecisionSupport] = useState<DecisionSupportSummary>(buildDecisionSupportSummary());
 
   useEffect(() => {
     fetch('/api/profile')
@@ -154,6 +160,7 @@ export default function DashboardPage() {
       setRecentMeals(buildRecentMeals());
       setNutritionInsights(buildNutritionInsights());
       setWeeklyCalories(buildWeeklyCalories(baseDate));
+      setDecisionSupport(buildDecisionSupportSummary());
     };
 
     refresh();
@@ -369,6 +376,16 @@ export default function DashboardPage() {
         </TabsContent>
 
         <TabsContent value="nutrition" className="space-y-4 animate-in fade-in duration-200">
+          {!hasPremium ? (
+            <UpgradeNotice
+              plan="premium"
+              title="Nutrition Intelligence is a Premium feature"
+              description="Upgrade to Premium for advanced nutrition scoring, nutrient coverage, and AI-guided next steps."
+            />
+          ) : null}
+
+          {hasPremium ? (
+            <>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Nutrition Intelligence</CardTitle>
@@ -429,6 +446,36 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />Smart Next Step
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                <p className="text-sm font-semibold text-foreground">{decisionSupport.headline}</p>
+                <p className="text-xs text-muted-foreground mt-1">{decisionSupport.summary}</p>
+              </div>
+              <div className="space-y-2">
+                {decisionSupport.suggestions.map((suggestion) => (
+                  <div key={`${suggestion.mealType}-${suggestion.recipeName}`} className="rounded-xl border border-border px-4 py-3 bg-background/70">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{suggestion.recipeName}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{suggestion.why}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-primary">{suggestion.calories}</p>
+                        <p className="text-[10px] text-muted-foreground">kcal</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />Personalized Recommendations
               </CardTitle>
             </CardHeader>
@@ -456,6 +503,8 @@ export default function DashboardPage() {
               </Accordion>
             </CardContent>
           </Card>
+            </>
+          ) : null}
         </TabsContent>
       </Tabs>
     </div>

@@ -93,6 +93,9 @@
 }
 
 .dark {
+  --brand-text-muted: rgba(226, 232, 240, 0.78);
+  --brand-text-secondary: #cbd5e1;
+  --brand-border-light: rgba(255, 255, 255, 0.12);
   --card: oklch(0.205 0 0);
   --ring: oklch(0.556 0 0);
   --input: oklch(1 0 0 / 15%);
@@ -234,6 +237,10 @@
 /* ===== FONTS ===== */
 body { font-family: var(--font-manrope, 'Manrope'), system-ui, sans-serif; }
 h1,h2,h3,h4,h5,h6 { font-family: var(--font-outfit, 'Outfit'), system-ui, sans-serif; }
+
+.text-muted-foreground-foreground {
+  color: var(--muted-foreground);
+}
 
 /* ===== GLASS ===== */
 .glass {

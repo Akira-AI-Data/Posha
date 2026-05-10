@@ -1,0 +1,6 @@
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg1.mp4'
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg2.mp4'
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg3.mp4'
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg4.mp4'
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg5.mp4'
+file 'C:\Users\Rahul\Documents\Codex\2026-04-21-summarize-what-s-happening-on-slack\CalorieAI\promo-video\segments\seg6.mp4'

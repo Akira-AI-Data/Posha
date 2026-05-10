@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { ChefHat, Globe, Carrot, Heart, Loader2, Clock, Bookmark, Shuffle, ChevronDown, X, Search, Zap, AlertTriangle, Sparkles } from 'lucide-react'
 import { FluentEmoji } from '@/components/ui/FluentEmoji'
+import { UpgradeNotice } from '@/components/billing/UpgradeNotice'
+import { useBillingAccess } from '@/hooks/useBillingAccess'
 import {
   RECIPES,
   CUISINE_OPTIONS,
@@ -344,6 +346,7 @@ function RecipeDetailModal({
 
 // ── Main Page ────────────────────────────────────────────────────────
 export default function CookbookPage() {
+  const { hasPro } = useBillingAccess()
   const [category, setCategory] = useState('lunch')
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([])
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([])
@@ -457,23 +460,34 @@ export default function CookbookPage() {
 
       {/* Filters Row */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <SearchableMultiSelect label="Cuisine" icon={Globe} options={CUISINE_OPTIONS} selected={selectedCuisines} onChange={setSelectedCuisines} />
-        <SearchableMultiSelect label="Ingredients" icon={Carrot} options={INGREDIENT_OPTIONS} selected={selectedIngredients} onChange={setSelectedIngredients} />
+        {hasPro ? <SearchableMultiSelect label="Cuisine" icon={Globe} options={CUISINE_OPTIONS} selected={selectedCuisines} onChange={setSelectedCuisines} /> : null}
+        {hasPro ? <SearchableMultiSelect label="Ingredients" icon={Carrot} options={INGREDIENT_OPTIONS} selected={selectedIngredients} onChange={setSelectedIngredients} /> : null}
 
         {/* Nutrient Smart Toggle */}
         <button
-          onClick={() => setNutrientSmart(!nutrientSmart)}
+          onClick={() => hasPro && setNutrientSmart(!nutrientSmart)}
+          disabled={!hasPro}
           className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all border ${
             nutrientSmart
               ? 'bg-amber-100 border-amber-300 text-amber-800'
               : 'bg-card-bg border-border text-foreground hover:bg-background'
-          }`}
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <Heart className={`w-4 h-4 ${nutrientSmart ? 'text-amber-600 fill-amber-600' : ''}`} />
           Nutrient Smart
           {nutrientSmart && <span className="text-xs">✓</span>}
         </button>
       </div>
+
+      {!hasPro ? (
+        <div className="mb-4">
+          <UpgradeNotice
+            plan="pro"
+            title="Pro unlocks advanced cookbook tools"
+            description="Cuisine filters, ingredient filters, and Nutrient Smart recipe ranking are available on Pro and above."
+          />
+        </div>
+      ) : null}
 
       {/* Nutrient Smart Panel */}
       {nutrientSmart && nutrientGaps.length > 0 && (

@@ -34,5 +34,11 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 
+# Android signing
+keystore/
+android/keystore/
+android/keystore.properties
+android/keystore-passwords.local.txt
+
 # Claude worktrees
 .claude/worktrees/

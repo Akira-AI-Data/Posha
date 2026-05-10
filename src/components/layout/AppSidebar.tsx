@@ -17,10 +17,12 @@ import {
   ChevronsRight,
   ChevronDown,
   LogOut,
+  LifeBuoy,
   Sparkles,
   Menu,
   X,
 } from "lucide-react";
+import { useBillingAccess } from '@/hooks/useBillingAccess';
 
 const menuItems = [
   { href: "/dashboard", icon: LayoutDashboard, title: "Dashboard" },
@@ -39,13 +41,19 @@ const accountItems = [
 ];
 
 export function AppSidebar() {
+  const { plan, hasPro, hasPremium, isAdmin } = useBillingAccess();
   const [open, setOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
 
   const userName = session?.user?.name || session?.user?.email?.split("@")[0] || "User";
-  const userPlan = "Pro Plan";
+  const userPlan = isAdmin ? "Admin" : `${plan.charAt(0).toUpperCase()}${plan.slice(1)} Plan`;
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (item.href === '/aiadvisor') return hasPremium;
+    if (item.href === '/meal-plan' || item.href === '/shopping') return hasPro;
+    return true;
+  });
 
   const sidebarInner = (isMobile = false) => (
     <>
@@ -75,7 +83,7 @@ export function AppSidebar() {
 
       {/* Main nav */}
       <div className="space-y-1 mb-8">
-        {menuItems.map((item) => (
+        {visibleMenuItems.map((item) => (
           <Option
             key={item.href}
             Icon={item.icon}
@@ -109,6 +117,20 @@ export function AppSidebar() {
             onClick={() => setMobileOpen(false)}
           />
         ))}
+        <a
+          href="mailto:support@posha.app?subject=Posha%20Support"
+          className="relative flex h-11 w-full items-center rounded-md text-gray-700 dark:text-gray-300 hover:bg-white/60 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all duration-200"
+        >
+          <div className="grid h-full w-12 place-content-center flex-shrink-0">
+            <LifeBuoy className="h-4 w-4" />
+          </div>
+          <span
+            className="text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out"
+            style={{ opacity: open || isMobile ? 1 : 0, maxWidth: open || isMobile ? 160 : 0 }}
+          >
+            Support
+          </span>
+        </a>
         {/* Sign Out */}
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
@@ -135,7 +157,7 @@ export function AppSidebar() {
   return (
     <>
       {/* Mobile top bar */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 h-14 flex items-center px-4 shadow-sm">
+      <header className="md:hidden fixed top-0 left-0 right-0 bg-white/95 dark:bg-gray-950/95 border-b border-gray-200 dark:border-gray-800 z-40 h-16 flex items-center px-4 shadow-sm backdrop-blur-md">
         <button
           onClick={() => setMobileOpen(true)}
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

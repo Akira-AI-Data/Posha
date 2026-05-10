@@ -94,7 +94,7 @@ export default function OnboardingPage() {
           <h1 className="text-3xl font-bold text-foreground">Welcome to Posha</h1>
         </div>
         <p className="text-muted-foreground mb-8">
-          A few quick details so we can personalise your nutrition plan.
+          A few quick details help personalize Posha. You can skip this and start using the app right away.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5 bg-card-bg rounded-2xl border border-border p-6">
@@ -172,14 +172,23 @@ export default function OnboardingPage() {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            Continue to Posha
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              Continue to Posha
+            </button>
+            <button
+              type="button"
+              onClick={() => router.replace('/dashboard')}
+              className="flex-1 px-6 py-3 rounded-xl border border-border text-foreground font-semibold hover:bg-white transition-colors"
+            >
+              Skip for now
+            </button>
+          </div>
         </form>
       </div>
 

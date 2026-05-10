@@ -2,10 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { CalendarDays, ChevronLeft, ChevronRight, Trash2, Plus, X, Search, Bookmark, Globe, Clock, ShoppingCart, Sparkles, Loader2 } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Trash2, Plus, X, Search, Bookmark, Globe, Clock, ShoppingCart, Sparkles, Loader2, RotateCcw } from 'lucide-react'
 import { FluentEmoji } from '@/components/ui/FluentEmoji'
 import { RECIPES, type Recipe } from '@/data/recipes'
-import { planNutritionSmartWeek, type PlannerSettings } from '@/lib/mealPlanner'
+import { planNutritionSmartWeek, type PlannerSettings, type BlockedMealSuggestions } from '@/lib/mealPlanner'
 import {
   getLocalDateKey,
   getWeekDates,
@@ -20,6 +20,7 @@ import {
 const SAVED_RECIPES_KEY = 'posha_saved_recipes'
 const PANTRY_KEY = 'posha_pantry'
 const SHOPPING_KEY = 'posha_shopping'
+const REMOVED_SUGGESTIONS_KEY = 'posha_removed_meal_suggestions'
 const mealTypes: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
 interface PantryItem {
@@ -131,6 +132,18 @@ function loadSavedRecipes(): Recipe[] {
   } catch {
     return []
   }
+}
+
+function loadRemovedSuggestions(): BlockedMealSuggestions {
+  try {
+    return JSON.parse(localStorage.getItem(REMOVED_SUGGESTIONS_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveRemovedSuggestions(data: BlockedMealSuggestions) {
+  localStorage.setItem(REMOVED_SUGGESTIONS_KEY, JSON.stringify(data))
 }
 
 // ── Recipe Picker Modal ──────────────────────────────────────────────
@@ -250,6 +263,10 @@ export default function MealPlanPage() {
   const [pickerSlot, setPickerSlot] = useState<{ date: string; mealType: MealType } | null>(null)
   const [planningWeek, setPlanningWeek] = useState(false)
   const [statusNotice, setStatusNotice] = useState<{ message: string; href?: string; cta?: string } | null>(null)
+  const [removedSuggestions, setRemovedSuggestions] = useState<BlockedMealSuggestions>(() => {
+    if (typeof window === 'undefined') return {}
+    return loadRemovedSuggestions()
+  })
 
   const baseDate = new Date()
   baseDate.setDate(baseDate.getDate() + weekOffset * 7)
@@ -282,6 +299,11 @@ export default function MealPlanPage() {
     }
     setMealPlan(updated)
     saveMealPlan(updated)
+    if (removedSuggestions[date]?.[mealType]?.length) {
+      const nextRemoved = { ...removedSuggestions, [date]: { ...(removedSuggestions[date] || {}), [mealType]: [] } }
+      setRemovedSuggestions(nextRemoved)
+      saveRemovedSuggestions(nextRemoved)
+    }
     setPickerSlot(null)
 
     // Auto-add missing ingredients to shopping list
@@ -297,6 +319,7 @@ export default function MealPlanPage() {
   }
 
   function removeMeal(date: string, mealType: MealType) {
+    const removedMealName = mealPlan[date]?.[mealType]?.name
     const updated = { ...mealPlan }
     if (updated[date]) {
       delete updated[date][mealType]
@@ -304,6 +327,34 @@ export default function MealPlanPage() {
     }
     setMealPlan(updated)
     saveMealPlan(updated)
+
+    if (removedMealName) {
+      const nextRemoved: BlockedMealSuggestions = {
+        ...removedSuggestions,
+        [date]: {
+          ...(removedSuggestions[date] || {}),
+          [mealType]: Array.from(new Set([...(removedSuggestions[date]?.[mealType] || []), removedMealName])),
+        },
+      }
+      setRemovedSuggestions(nextRemoved)
+      saveRemovedSuggestions(nextRemoved)
+    }
+  }
+
+  function clearCurrentWeek() {
+    const updated = { ...mealPlan }
+    const nextRemoved = { ...removedSuggestions }
+
+    for (const date of weekDates) {
+      delete updated[date]
+      delete nextRemoved[date]
+    }
+
+    setMealPlan(updated)
+    saveMealPlan(updated)
+    setRemovedSuggestions(nextRemoved)
+    saveRemovedSuggestions(nextRemoved)
+    showStatusNotice('Current week cleared.')
   }
 
   function handlePlanMyWeek() {
@@ -311,7 +362,7 @@ export default function MealPlanPage() {
 
     const targetWeekDates = [...weekDates]
     const settings = loadPlannerSettings()
-    const result = planNutritionSmartWeek(RECIPES, targetWeekDates, settings)
+    const result = planNutritionSmartWeek(RECIPES, targetWeekDates, settings, removedSuggestions)
     const updated = { ...mealPlan }
 
     for (const date of targetWeekDates) {
@@ -383,14 +434,25 @@ export default function MealPlanPage() {
           >
             <ChevronRight className="w-5 h-5" />
           </button>
-          <div className="h-6 w-px bg-border mx-1" />
+        </div>
+      </div>
+
+      <div className="mb-5 flex justify-center">
+        <div className="flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
           <button
             onClick={handlePlanMyWeek}
             disabled={planningWeek}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
             {planningWeek ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             Plan My Week
+          </button>
+          <button
+            onClick={clearCurrentWeek}
+            className="px-4 py-2 text-sm font-medium text-primary bg-white border border-primary/20 rounded-xl hover:bg-primary/10 transition-colors flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Clear This Week
           </button>
         </div>
       </div>
@@ -411,7 +473,7 @@ export default function MealPlanPage() {
           >
             Plan My Week
           </button>{' '}
-          fills the current week using your saved allergies and excluded ingredients.
+          fills the current week using your saved allergies and excluded ingredients. Clear This Week resets the visible week, and removed suggestions will be replaced with different meals next time.
         </p>
       </div>
 
