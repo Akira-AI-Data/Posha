@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import { Capacitor } from '@capacitor/core';
 import { Sparkles, Mail, Lock, User, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -55,8 +56,37 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogleSignIn = () => {
-    signIn('google', { callbackUrl: '/dashboard' });
+  const handleGoogleSignIn = async () => {
+    if (Capacitor.isNativePlatform()) {
+      // Google blocks OAuth inside WebViews — use Chrome Custom Tab instead.
+      // Cookies are shared between Chrome Custom Tab and the Android WebView,
+      // so the session cookie set during OAuth is immediately available in the app.
+      const { Browser } = await import('@capacitor/browser');
+      const callbackPath = '/auth/mobile-callback';
+      let authCompleted = false;
+
+      const pageLoadedListener = await Browser.addListener('browserPageLoaded', async (event) => {
+        if (!authCompleted && event.url?.includes(callbackPath)) {
+          authCompleted = true;
+          pageLoadedListener.remove();
+          await Browser.close();
+          window.location.href = '/dashboard';
+        }
+      });
+
+      const finishedListener = await Browser.addListener('browserFinished', () => {
+        // Tab was closed (manually or after Browser.close()) — clean up listeners.
+        pageLoadedListener.remove();
+        finishedListener.remove();
+      });
+
+      await Browser.open({
+        url: `https://www.myposha.com/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackPath)}`,
+        presentationStyle: 'fullscreen',
+      });
+    } else {
+      signIn('google', { callbackUrl: '/dashboard' });
+    }
   };
 
   return (
