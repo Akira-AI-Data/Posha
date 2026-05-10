@@ -48,7 +48,7 @@ export default auth(async (req) => {
   }
 
   // Public pages accessible to everyone
-  const publicPages = ['/', '/pricing', '/login', '/pricing/success', '/privacy', '/delete-account'];
+  const publicPages = ['/', '/pricing', '/login', '/pricing/success', '/privacy', '/delete-account', '/auth/mobile-callback'];
   const isPublicPage = publicPages.includes(pathname);
 
   // Allow public pages
