@@ -65,7 +65,10 @@ export default function LoginPage() {
       const callbackPath = '/auth/mobile-callback';
       let authCompleted = false;
 
-      const pageLoadedListener = await Browser.addListener('browserPageLoaded', async (event) => {
+      const pageLoadedListener = await (Browser.addListener as unknown as (
+        eventName: 'browserPageLoaded',
+        listenerFunc: (event: { url?: string }) => void | Promise<void>
+      ) => Promise<{ remove: () => Promise<void> }>)('browserPageLoaded', async (event) => {
         if (!authCompleted && event.url?.includes(callbackPath)) {
           authCompleted = true;
           pageLoadedListener.remove();
